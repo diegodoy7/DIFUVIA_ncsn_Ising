@@ -37,8 +37,8 @@ difuvia-ncsn-pipc/
 ## Installation
 
 ```bash
-git clone https://github.com/<your-username>/difuvia-ncsn-pipc.git
-cd difuvia-ncsn-pipc
+git clone https://github.com/diegodoy7/DIFUVIA_ncsn_Ising.git
+cd DIFUVIA_ncsn_Ising
 
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
