@@ -1,0 +1,69 @@
+training:
+  batch_size: 16           
+  n_epochs: 300      
+  n_iters: 100000          
+  snapshot_freq: 5000      
+  snapshot_sampling: true  
+  anneal_power: 2          
+  log_all_sigmas: false    
+
+sampling:
+  batch_size: 16
+  data_init: false        
+  step_lr: 0.0000062       # langevin step learning rate
+  n_steps_each: 5          # langevin steps per noise level
+  ckpt_id: 100000          
+  final_only: true         
+  fid: false               
+  denoise: true            
+  num_samples4fid: 100     
+  inpainting: false        
+  interpolation: false    
+  n_interpolations: 10
+
+fast_fid:
+  batch_size: 100
+  num_samples: 100
+  step_lr: 0.0000062
+  n_steps_each: 5
+  begin_ckpt: 5000
+  end_ckpt: 100000
+  verbose: false
+  ensemble: false
+
+test:
+  begin_ckpt: 5000
+  end_ckpt: 100000
+  batch_size: 100
+
+data:
+  dataset: "Ising"         # dataset name 
+  path: "train_data"       # folder with JSON files
+  image_size: 64           # Image dimensions
+  channels: 1              # One channel for Ising data
+  logit_transform: false   
+  uniform_dequantization: false 
+  gaussian_dequantization: false
+  random_flip: true        
+  rescaled: false         
+  num_workers: 4           
+
+model:
+  sigma_begin: 52          # obtained from marchenko_criteria
+  sigma_dist: geometric    # geometric progression (standard in NCSN)
+  sigma_end: 0.01          # as recommended in the paper
+  num_classes: 250         # L noise scales 
+  ema: true                # Exponential Moving Average 
+  ema_rate: 0.999
+  spec_norm: false         # Normalización espectral (a veces ayuda, default false en v2)
+  normalization: InstanceNorm++ # Estándar para NCSNv2
+  nonlinearity: elu        # Activation function 
+  ngf: 64                  
+
+optim:
+  weight_decay: 0.000
+  optimizer: "Adam"
+  lr: 0.0001               # Standard learning rate for adam
+  beta1: 0.9
+  amsgrad: false
+  eps: 0.00000001
