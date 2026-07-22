@@ -1,5 +1,0 @@
-train_data/** filter=lfs diff=lfs merge=lfs -text
-ablation_samples/** filter=lfs diff=lfs merge=lfs -text
-gen_data/** filter=lfs diff=lfs merge=lfs -text
-networks/*.pth filter=lfs diff=lfs merge=lfs -text
-networks/*.pt filter=lfs diff=lfs merge=lfs -text

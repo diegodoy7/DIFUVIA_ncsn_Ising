@@ -26,6 +26,8 @@ difuvia-ncsn-pipc/
 │   └── runners/ncsn_runner.py      ← training loop
 ├── data/
 │   └── ising_adapter_continuous.py ← Monte Carlo dataset adapter
+├── scripts/
+│   └── download_data.py            ← fetches data/checkpoints from Hugging Face Hub
 ├── requirements.txt
 └── .gitignore
 ```
@@ -48,9 +50,9 @@ pip install -e .                   # makes the difuvia package importable from a
 
 ---
 
-## Data & checkpoints (Git LFS)
+## Data & checkpoints (Hugging Face)
 
-This repository ships its Monte Carlo dataset, pre-generated ablation samples, comparison samples, and model checkpoints via [Git LFS](https://git-lfs.com/) — **no training or sample generation is required to reproduce any of the four research blocks below.**
+The Monte Carlo dataset, pre-generated ablation samples, comparison samples, and model checkpoints are hosted on Hugging Face Hub at [diegodoy7/difuvia-ncsn-ising-data](https://huggingface.co/datasets/diegodoy7/difuvia-ncsn-ising-data) — **no training or sample generation is required to reproduce any of the four research blocks below.**
 
 | Path | Contents | Size |
 |---|---|---|
@@ -59,20 +61,13 @@ This repository ships its Monte Carlo dataset, pre-generated ablation samples, c
 | `gen_data/NCSN/`, `gen_data/DDPM/` | Pre-generated samples for the Block 4 comparison | ~345 MB |
 | `networks/` | Trained NCSNv2-PIPC and DDPM checkpoints | ~175 MB |
 
-**Total: ~2.6 GB.** Install Git LFS *before* cloning, otherwise these paths will download as small text pointer files instead of real data:
+**Total: ~2.6 GB.** After installing dependencies (see above), fetch the data with:
 
 ```bash
-# macOS
-brew install git-lfs
-# Debian/Ubuntu
-sudo apt install git-lfs
-
-git lfs install          # one-time, per machine
-git clone https://github.com/diegodoy7/DIFUVIA_ncsn_Ising.git
+python scripts/download_data.py
 ```
 
-If you already cloned without Git LFS installed, install it and run `git lfs pull` from inside the repo to fetch the real files.
-
+This downloads `train_data/`, `ablation_samples/`, `gen_data/`, and `networks/` into the repo root via the `huggingface_hub` library — no account or token needed, the dataset repo is public.
 
 ---
 
@@ -83,7 +78,7 @@ The model is trained on a Monte Carlo dataset generated with the Wolff cluster a
 - **Temperatures:** 11 values from T* = 1.77 to T* = 2.77 (spacing 0.1), bracketing T_c ≈ 2.269
 - **Samples:** N = 1000 per temperature
 
-Ships at `train_data/` via Git LFS (see above) — no separate download needed. Each temperature has a corresponding file readable by `data/ising_adapter_continuous.py`.
+Ships at `train_data/` via Hugging Face Hub (see above) — no separate download needed beyond `scripts/download_data.py`. Each temperature has a corresponding file readable by `data/ising_adapter_continuous.py`.
 
 ---
 

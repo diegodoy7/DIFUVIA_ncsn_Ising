@@ -29,6 +29,12 @@ logs/
 figures/
 tables/
 
+# Data & checkpoints — downloaded from Hugging Face, see scripts/download_data.py
+train_data/
+ablation_samples/
+gen_data/
+networks/
+
 # Editor
 .vscode/
 .idea/
