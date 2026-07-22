@@ -22,14 +22,8 @@ env/
 # macOS
 .DS_Store
 
-# Large data and checkpoints — not tracked in git
-train_data
+# Runtime logs
 logs/
-ablation_samples
-gen_data
-*.pt
-*.pth
-*.ckpt
 
 # Generated outputs — reproducible from scripts
 figures/
