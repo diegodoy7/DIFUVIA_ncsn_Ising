@@ -1,6 +1,10 @@
 # DIFUVIA: Physics-Informed Score-Based Diffusion for the 2D Ising Model
 
+<<<<<<< HEAD
 The **DIFUVIA** project is a score-based generative model modification trained on 2D Ising spin configurations. The model extends NCSNv2 (Song & Ermon, 2020) with a temperature-conditional Fourier feature embedding and is sampled via a physics-guided Predictor-Corrector (PIPC) algorithm that injects the Ising Hamiltonian gradient and a double-well potential as a corrector force during inference.
+=======
+**DIFUVIA**  is a score-based generative model trained on 2D Ising spin configurations. The model extends NCSNv2 (Song & Ermon, 2020) with a temperature-conditional Fourier feature embedding and is sampled via a physics-guided Predictor-Corrector (PIPC) algorithm that injects the Ising Hamiltonian gradient as a corrector force during inference. The result faithfully reproduces exact thermodynamic observables — ⟨|m|⟩, ⟨e⟩, C_v, χ, and G(r) — across the ferro–paramagnetic phase transition, including critical scaling at T_c ≈ 2.269.
+>>>>>>> ab8f5f4 (large files update)
 
 ---
 
@@ -50,6 +54,34 @@ pip install -e .                   # makes the difuvia package importable from a
 
 ---
 
+## Data & checkpoints (Git LFS)
+
+This repository ships its Monte Carlo dataset, pre-generated ablation samples, comparison samples, and model checkpoints via [Git LFS](https://git-lfs.com/) — **no training or sample generation is required to reproduce any of the four research blocks below.**
+
+| Path | Contents | Size |
+|---|---|---|
+| `train_data/` | Monte Carlo (Wolff) Ising configurations, 11 temperatures | ~110 MB |
+| `ablation_samples/` | PC sampler ablation grid, 12 configs (E1–E12) × 11 temperatures | ~2.0 GB |
+| `gen_data/NCSN/`, `gen_data/DDPM/` | Pre-generated samples for the Block 4 comparison | ~345 MB |
+| `networks/` | Trained NCSNv2-PIPC and DDPM checkpoints | ~175 MB |
+
+**Total: ~2.6 GB.** Install Git LFS *before* cloning, otherwise these paths will download as small text pointer files instead of real data:
+
+```bash
+# macOS
+brew install git-lfs
+# Debian/Ubuntu
+sudo apt install git-lfs
+
+git lfs install          # one-time, per machine
+git clone https://github.com/diegodoy7/DIFUVIA_ncsn_Ising.git
+```
+
+If you already cloned without Git LFS installed, install it and run `git lfs pull` from inside the repo to fetch the real files.
+
+
+---
+
 ## Dataset
 
 The model is trained on a Monte Carlo dataset generated with the Wolff cluster algorithm:
@@ -57,7 +89,7 @@ The model is trained on a Monte Carlo dataset generated with the Wolff cluster a
 - **Temperatures:** 11 values from T* = 1.77 to T* = 2.77 (spacing 0.1), bracketing T_c ≈ 2.269
 - **Samples:** N = 1000 per temperature
 
-Place the dataset at `train_data/` before running experiments. Each temperature should have a corresponding file readable by `data/ising_adapter_continuous.py`.
+Ships at `train_data/` via Git LFS (see above) — no separate download needed. Each temperature has a corresponding file readable by `data/ising_adapter_continuous.py`.
 
 ---
 
@@ -97,9 +129,9 @@ Outputs: `figures/Fig_MP_eigenvalue_spectra.pdf`, `tables/Table2_sigma_compariso
 
 ### Block 3 — PC sampler ablation study
 
-Sweeps 12 configurations (E1–E12) of the physics-guided Predictor-Corrector sampler over (M, K, λ₀).
+Sweeps 12 configurations (E1–E12) of the physics-guided Predictor-Corrector sampler over (M, K, λ₀). All 132 sample files (E1–E12 × 11 temperatures) ship in `ablation_samples/` via Git LFS — **skip straight to Step 3b** unless you want to regenerate or extend the grid.
 
-**Step 3a** — generate samples (runs the score model; may take several hours on CPU):
+**Step 3a (optional)** — regenerate samples from scratch (runs the score model; may take several hours on CPU):
 
 ```bash
 python experiments/r3_ablation.py \
@@ -127,7 +159,7 @@ Outputs: `figures/Fig3_ablation_observables.pdf`, `figures/Fig3_ablation_correla
 
 ### Block 4 — Comparative study (NCSNv2-PIPC vs DDPM)
 
-Compares NCSNv2-PIPC against a DDPM baseline across all temperatures and thermodynamic observables.
+Compares NCSNv2-PIPC against a DDPM baseline across all temperatures and thermodynamic observables. Pre-generated samples for both models ship in `gen_data/NCSN/` and `gen_data/DDPM/` via Git LFS, so this runs immediately with no generation step:
 
 ```bash
 python experiments/r4_comparative.py \
@@ -140,22 +172,10 @@ python experiments/r4_comparative.py \
     --experiment_name E9
 ```
 
-If `--ncsn_dir` is not provided, samples are generated on-the-fly from the checkpoint.
+If `--ncsn_dir` is omitted, samples are instead generated on-the-fly from the checkpoint.
 
 Outputs: `figures/Fig4_thermodynamic_comparison.pdf`, `figures/Fig5_lattice_comparison.pdf`, `figures/Fig6_correlation_comparison.pdf`, `tables/Table4_fidelity_comparison.csv`
 
----
-
-## Best sampler configuration (E9)
-
-| Hyperparameter | Value |
-|---|---|
-| M — predictor steps | 200 |
-| K — corrector steps per predictor | 1 |
-| λ₀ — physics guidance scale | 0.2 |
-| Noise levels | 250 (geometric, σ₁ ≈ 52, σ_L ≈ 0.01) |
-| Lattice size | 64 × 64 |
-| Training epochs | 300 |
 
 ---
 
