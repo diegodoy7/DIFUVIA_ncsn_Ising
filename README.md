@@ -1,8 +1,5 @@
 # DIFUVIA: Physics-Informed Score-Based Diffusion for the 2D Ising Model
 
-<<<<<<< HEAD
-The **DIFUVIA** project is a score-based generative model modification trained on 2D Ising spin configurations. The model extends NCSNv2 (Song & Ermon, 2020) with a temperature-conditional Fourier feature embedding and is sampled via a physics-guided Predictor-Corrector (PIPC) algorithm that injects the Ising Hamiltonian gradient and a double-well potential as a corrector force during inference.
-=======
 **DIFUVIA**  is a score-based generative model trained on 2D Ising spin configurations. The model extends NCSNv2 (Song & Ermon, 2020) with a temperature-conditional Fourier feature embedding and is sampled via a physics-guided Predictor-Corrector (PIPC) algorithm that injects the Ising Hamiltonian gradient as a corrector force during inference. The result faithfully reproduces exact thermodynamic observables — ⟨|m|⟩, ⟨e⟩, C_v, χ, and G(r) — across the ferro–paramagnetic phase transition, including critical scaling at T_c ≈ 2.269.
 >>>>>>> ab8f5f4 (large files update)
 
