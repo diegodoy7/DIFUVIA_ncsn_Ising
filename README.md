@@ -10,14 +10,20 @@ difuvia-ncsn-pipc/
 │   ├── physics.py                  ← SoftIsingEnergy, exact theory (Yang 1952, Onsager 1944)
 │   ├── thermodynamics.py           ← observables, spin correlation G(r), MC data loaders
 │   ├── sampling.py                 ← PC sampler, annealed Langevin, ablation grid runner
+│   ├── ddpm.py                     ← DDPM baseline (conditional U-Net + diffusion)
+│   ├── nfe.py                      ← NFE metric: counter, formulas, verification
 │   ├── model_utils.py              ← model loading, YAML config, device selection
-│   ├── analysis.py                 ← nRMSE, IPS, Wasserstein-1, Marchenko-Pastur, tables
+│   ├── data_access.py              ← on-demand Hugging Face data fetch
+│   ├── analysis.py                 ← nRMSE, IPS, W1, NFE table, time-vs-NFE fit
 │   └── viz.py                      ← all matplotlib figures
 ├── experiments/
 │   ├── r1_dataset_validation.py    ← Block 1: MC dataset vs exact theory
 │   ├── r2_sigma_selection.py       ← Block 2: σ₁ selection via Marchenko-Pastur criterion
-│   ├── r3_ablation.py              ← Block 3: PC sampler hyperparameter grid (runs model)
+│   ├── r3_ablation.py              ← Block 3: PC sampler grid (--source download|generate)
 │   ├── r3_offline_analysis.py      ← Block 3: offline analysis of saved samples
+│   ├── r3b_ablation_nophysics.py   ← Block 3c: physics-free ablation (λ₀=0, A1–A3)
+│   ├── verify_nfe.py               ← empirical NFE verification (PIPC + DDPM)
+│   ├── generate_ddpm.py            ← regenerate DDPM baseline samples
 │   └── r4_comparative.py           ← Block 4: NCSNv2-PIPC vs DDPM full comparison
 ├── ncsnv2/                         ← NCSNv2 architecture (Song & Ermon 2020)
 │   ├── configs/ising.yml           ← model and training configuration
@@ -120,29 +126,47 @@ Outputs: `figures/Fig_MP_eigenvalue_spectra.pdf`, `tables/Table2_sigma_compariso
 
 Sweeps 12 configurations (E1–E12) of the physics-guided Predictor-Corrector sampler over (M, K, λ₀). All 132 sample files (E1–E12 × 11 temperatures) ship in `ablation_samples/` via Git LFS — **skip straight to Step 3b** unless you want to regenerate or extend the grid.
 
-**Step 3a (optional)** — regenerate samples from scratch (runs the score model; may take several hours on CPU):
+**Step 3a — use available data or generate.** `r3_ablation.py` takes `--source`:
+`download` (default; pulls the pre-generated E1–E12 from Hugging Face if not present)
+or `generate` (re-runs the score model from the checkpoint — may take hours on CPU/MPS).
 
 ```bash
-python experiments/r3_ablation.py \
-    --checkpoint networks/ckpt_epoch_300.pth \
-    --data_dir   train_data \
-    --n_samples  1000 \
-    --save_dir   ablation_samples \
-    --fig_dir    figures \
-    --table_dir  tables
+# use the shipped samples
+python experiments/r3_ablation.py --source download
+
+# or regenerate from the trained checkpoint
+python experiments/r3_ablation.py --source generate \
+    --checkpoint networks/ckpt_epoch_300.pth --n_samples 1000 --save_dir ablation_samples
 ```
 
 **Step 3b** — offline analysis (loads saved `.pt` files; fast):
 
 ```bash
 python experiments/r3_offline_analysis.py \
-    --save_dir   ablation_samples \
-    --data_dir   train_data \
-    --fig_dir    figures \
-    --table_dir  tables
+    --save_dir ablation_samples --data_dir train_data --ddpm_dir gen_data/DDPM \
+    --fig_dir figures --table_dir tables
 ```
 
+The results table now reports, per configuration, **M, K, λ₀, NFE, per-sample time, and
+speedup vs the DDPM baseline**, and a consistency fit `time ≈ a·NFE + b` (with R²).
 Outputs: `figures/Fig3_ablation_observables.pdf`, `figures/Fig3_ablation_correlation.pdf`, `figures/Fig3_pareto_IPS.pdf`, `tables/Table_ablation_normalized.csv`
+
+**Step 3c — physics-free ablation (λ₀ = 0).** Isolates the contribution of the physical
+guidance by running the *same* sampler and weights with guidance off, at M=150, K∈{1,2,3}
+(configs A1–A3), kept separate under `ablation_samples_nophysics/`:
+
+```bash
+python experiments/r3b_ablation_nophysics.py --source generate   # or --source download
+```
+
+Outputs: `tables/Table_ablation_nophysics.csv`, `figures/Fig3b_nophysics_*.pdf`.
+
+**NFE verification.** Confirm the closed-form NFE (`M·(K+1)` for PIPC, `999` for DDPM)
+against an empirical forward-pass counter:
+
+```bash
+python experiments/verify_nfe.py
+```
 
 ---
 
@@ -163,6 +187,11 @@ python experiments/r4_comparative.py \
 
 If `--ncsn_dir` is omitted, samples are instead generated on-the-fly from the checkpoint.
 
+The DDPM baseline is fully reproducible in-repo: `difuvia/ddpm.py` holds the conditional
+U-Net + diffusion, and `experiments/generate_ddpm.py --output gen_data/DDPM` regenerates the
+DDPM samples from `networks/ising_ddpm_11t.pt` (noise_steps=1000, **NFE = 999**, no
+classifier-free guidance).
+
 Outputs: `figures/Fig4_thermodynamic_comparison.pdf`, `figures/Fig5_lattice_comparison.pdf`, `figures/Fig6_correlation_comparison.pdf`, `tables/Table4_fidelity_comparison.csv`
 
 
@@ -174,6 +203,8 @@ Outputs: `figures/Fig4_thermodynamic_comparison.pdf`, `figures/Fig5_lattice_comp
 |---|---|
 | **nRMSE_X** | RMSE(X_gen, X_MC) / range(X_MC) — normalized per observable |
 | **IPS** | Integrated Physical Score = 0.30·nRMSE_M + 0.30·nRMSE_E + 0.20·nRMSE_Cv + 0.20·nRMSE_χ |
+| **NFE** | Number of Function Evaluations = network forward passes per sample. PIPC: M·(K+1); DDPM: 999 (noise_steps−1, no CFG). The analytical Ising force does not count. |
+| **Speedup** | DDPM per-sample time ÷ PIPC per-sample time (same hardware). Consistency: `time ≈ a·NFE + b` fit with R². |
 | **W1** | Mean Wasserstein-1 distance on m and e sample distributions across temperatures |
 
 Lower is better for all three metrics.

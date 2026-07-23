@@ -32,6 +32,7 @@ tables/
 # Data & checkpoints — downloaded from Hugging Face, see scripts/download_data.py
 train_data/
 ablation_samples/
+ablation_samples_nophysics/
 gen_data/
 networks/
 
