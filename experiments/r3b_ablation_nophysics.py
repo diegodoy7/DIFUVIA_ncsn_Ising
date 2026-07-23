@@ -38,7 +38,7 @@ from difuvia.data_access import ensure_data
 
 # Physics-free grid: M=150 fixed, K swept, λ₀ = 0 (no physical guidance).
 PHYSFREE_GRID = [
-    {"id": "A1", "M": 150, "K": 1, "lambda0": 0.0},
+    {"id": "A1", "M": 150, "K": 1, "lambda0": 0.0}, # pure langevin   
     {"id": "A2", "M": 150, "K": 2, "lambda0": 0.0},
     {"id": "A3", "M": 150, "K": 3, "lambda0": 0.0},
 ]
