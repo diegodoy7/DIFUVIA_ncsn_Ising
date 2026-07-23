@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import wasserstein_distance
 
+from difuvia.nfe import nfe_pipc
+
 UV_GREEN = (0.157, 0.678, 0.337)
 UV_BLUE  = (0.094, 0.322, 0.616)
 
@@ -289,11 +291,23 @@ def print_ablation_table(
     mc_ground_truth: dict,
     temperatures: list,
     save_csv: bool = True,
+    ddpm_time_ms: float = None,
+    batch_size: int = 50,
+    hardware: str = None,
+    csv_path: str = "tables/Table_ablation_normalized.csv",
 ) -> pd.DataFrame:
     """
-    Print TABLE 3: sampler sensitivity analysis — nRMSE, W1, IPS, generation time.
+    Print TABLE 3: sampler sensitivity analysis — nRMSE, W1, IPS, NFE, time.
 
-    results: list of dicts from run_experiment or load_offline_samples_and_compute.
+    results      : list of dicts from run_experiment or load_offline_samples_and_compute.
+    ddpm_time_ms : if given, adds a Speedup column = ddpm_time_ms / config_time_ms
+                   (wall-clock speedup vs the DDPM baseline, per sample).
+    batch_size   : batch size used during generation (reported in the header).
+    hardware     : hardware string (e.g. 'mps') reported in the header.
+    csv_path     : where to save the CSV (separate physics-free runs use a different path).
+
+    NFE per config is the closed form M*(K+1) (see difuvia.nfe).
+    Time(ms) is per sample: total batch time / number of samples.
     """
     T_vals = sorted([T for T in temperatures if T in mc_ground_truth])
     mc_ranges = {}
@@ -325,12 +339,14 @@ def print_ablation_table(
         w1_int    = float(np.nanmean(w1_m_list + w1_e_list))
         ips       = 0.30 * nrmse_M + 0.30 * nrmse_E + 0.20 * nrmse_Cv + 0.20 * nrmse_Chi
         gen_time  = res.get("gen_time_ms", float("nan"))
+        nfe       = nfe_pipc(res["M"], res["K"])
 
-        rows.append({
+        row = {
             "Exp":       res["exp_id"],
             "M":         res["M"],
             "K":         res["K"],
             "λ₀":        res["lambda0"],
+            "NFE":       nfe,
             "nRMSE_M":   f"{nrmse_M:.4f}",
             "nRMSE_E":   f"{nrmse_E:.4f}",
             "nRMSE_Cv":  f"{nrmse_Cv:.4f}",
@@ -340,20 +356,73 @@ def print_ablation_table(
             "Time(ms)":  f"{gen_time:.2f}",
             "_IPS":      ips,
             "_Time":     gen_time,
-        })
+            "_NFE":      nfe,
+        }
+        if ddpm_time_ms is not None and gen_time and gen_time == gen_time and gen_time > 0:
+            row["Speedup"] = f"{ddpm_time_ms / gen_time:.1f}x"
+        rows.append(row)
 
     df = pd.DataFrame(rows).sort_values(by=["_IPS", "_Time"], ascending=True)
-    display_cols = ["Exp", "M", "K", "λ₀", "nRMSE_M", "nRMSE_E",
+    display_cols = ["Exp", "M", "K", "λ₀", "NFE", "nRMSE_M", "nRMSE_E",
                     "nRMSE_Cv", "nRMSE_Chi", "W1_Dist", "IPS", "Time(ms)"]
-    print("\n" + "=" * 105)
+    if "Speedup" in df.columns:
+        display_cols.append("Speedup")
+    header_bits = [f"batch_size={batch_size}"]
+    if hardware:
+        header_bits.append(f"hardware={hardware}")
+    if ddpm_time_ms is not None:
+        header_bits.append(f"DDPM baseline={ddpm_time_ms:.1f} ms/sample")
+    print("\n" + "=" * 115)
     print("TABLE 3: Sampler Sensitivity Analysis — Normalized & Distributional Metrics")
-    print("=" * 105)
+    print("  NFE = M*(K+1) network evals/sample | Time(ms) = per sample | "
+          + " | ".join(header_bits))
+    print("=" * 115)
     print(df[display_cols].to_string(index=False))
-    print("=" * 105)
+    print("=" * 115)
     if save_csv:
-        df.to_csv("tables/Table_ablation_normalized.csv", index=False)
-        print("  Saved: tables/Table_ablation_normalized.csv")
+        df.to_csv(csv_path, index=False)
+        print(f"  Saved: {csv_path}")
     return df
+
+
+def fit_time_vs_nfe(results: list) -> dict:
+    """
+    Consistency check for the speedup claim: fit  time_ms ≈ a * NFE + b  by
+    least squares over the given configs and report a, b, and R².
+
+    A high R² confirms that generation time is essentially linear in NFE, i.e.
+    the per-network-evaluation cost dominates and the closed-form NFE is a valid
+    proxy for wall-clock cost.
+
+    Returns {a, b, r2, n}. Prints a short summary.
+    """
+    nfe_vals, time_vals = [], []
+    for res in results:
+        t = res.get("gen_time_ms", float("nan"))
+        if t == t and t > 0:  # not NaN
+            nfe_vals.append(nfe_pipc(res["M"], res["K"]))
+            time_vals.append(t)
+
+    nfe_arr = np.asarray(nfe_vals, dtype=float)
+    time_arr = np.asarray(time_vals, dtype=float)
+    if len(nfe_arr) < 2:
+        print("  [fit_time_vs_nfe] Not enough valid points for a fit.")
+        return {"a": float("nan"), "b": float("nan"), "r2": float("nan"), "n": len(nfe_arr)}
+
+    a, b = np.polyfit(nfe_arr, time_arr, 1)
+    pred = a * nfe_arr + b
+    ss_res = np.sum((time_arr - pred) ** 2)
+    ss_tot = np.sum((time_arr - time_arr.mean()) ** 2)
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+    print("\n" + "=" * 60)
+    print("CONSISTENCY CHECK — time_ms ≈ a·NFE + b")
+    print("=" * 60)
+    print(f"  a  = {a:.6f} ms per network evaluation")
+    print(f"  b  = {b:.4f} ms (fixed overhead)")
+    print(f"  R² = {r2:.5f}   (n = {len(nfe_arr)} configs)")
+    print("=" * 60)
+    return {"a": float(a), "b": float(b), "r2": float(r2), "n": len(nfe_arr)}
 
 
 def print_comparison_table(

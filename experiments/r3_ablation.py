@@ -26,8 +26,9 @@ import argparse
 
 from difuvia.thermodynamics import load_mc_ground_truth, load_mc_correlation_at_tc
 from difuvia.sampling import load_offline_samples_and_compute
-from difuvia.analysis import print_ablation_table
+from difuvia.analysis import print_ablation_table, fit_time_vs_nfe
 from difuvia.viz import plot_all_observables, plot_correlation_at_tc, plot_pareto
+from difuvia.data_access import ensure_data, load_avg_gen_time_ms
 
 
 HYPERPARAMETER_GRID = [
@@ -48,13 +49,17 @@ HYPERPARAMETER_GRID = [
 
 def main():
     parser = argparse.ArgumentParser(description="R3: PC sampler ablation study")
+    parser.add_argument("--source", choices=["download", "generate"], default="download",
+                        help="download pre-generated E1–E12 from HF, or regenerate from checkpoint")
     parser.add_argument("--checkpoint",
                         default="networks/ckpt_epoch_300.pth",
-                        help="Only used by the commented-out generate-from-scratch path below.")
+                        help="NCSN checkpoint (used when --source generate).")
     parser.add_argument("--config",    default="ncsnv2/configs/ising.yml")
     parser.add_argument("--data_dir",  default="train_data")
+    parser.add_argument("--ddpm_dir",  default="gen_data/DDPM",
+                        help="DDPM samples dir; its avg gen_time gives the Speedup baseline.")
     parser.add_argument("--n_samples", type=int, default=1000,
-                        help="Only used by the commented-out generate-from-scratch path below.")
+                        help="Samples/temperature when --source generate.")
     parser.add_argument("--save_dir",  default="ablation_samples")
     parser.add_argument("--fig_dir",   default="figures")
     parser.add_argument("--table_dir", default="tables")
@@ -72,8 +77,9 @@ def main():
     print(f"  Samples dir  : {args.save_dir}/  (pre-generated, E1-E12)")
     print("=" * 60)
 
-    # 1. Load MC ground truth
+    # 1. Load MC ground truth (fetched from HF if absent)
     print("\n[1/5] Loading Monte Carlo ground truth...")
+    ensure_data([args.data_dir])
     mc_gt = load_mc_ground_truth(args.data_dir, TEMPERATURES, L=IMAGE_SIZE)
 
     # 2. MC G(r) at Tc
@@ -82,48 +88,36 @@ def main():
     if T_crit:
         print(f"  MC G(r) computed at T={T_crit:.2f}")
 
-    # 3. Load pre-generated E1-E12 samples (principal path — no model needed)
-    print("\n[3/5] Loading pre-generated ablation samples...")
-    results = load_offline_samples_and_compute(
-        hyperparameter_grid=HYPERPARAMETER_GRID,
-        temperatures=TEMPERATURES,
-        mc_ground_truth=mc_gt,
-        image_size=IMAGE_SIZE,
-        save_dir=args.save_dir,
-    )
+    # 3. Obtain E1-E12 samples: download pre-generated (default) or regenerate.
+    hardware = None
+    if args.source == "generate":
+        print("\n[3/5] Generating E1-E12 samples from checkpoint...")
+        from difuvia.physics import SoftIsingEnergy
+        from difuvia.model_utils import load_model, get_device
+        from difuvia.sampling import run_experiment
 
-    # ------------------------------------------------------------------
-    # ALTERNATIVE: generate a fresh hyperparameter grid from scratch with
-    # a trained checkpoint instead of loading pre-generated samples.
-    # Uncomment to use (and comment out the load_offline_samples_and_compute
-    # call above, or just let `results` be overwritten below).
-    #
-    # from difuvia.physics import SoftIsingEnergy
-    # from difuvia.model_utils import load_model, get_device
-    # from difuvia.sampling import run_experiment
-    #
-    # CUSTOM_GRID = [
-    #     {"id": "E1", "M": 100, "K": 2, "lambda0": 0.2},
-    #     # ... add or replace (M, K, lambda0) configs here
-    # ]
-    #
-    # device = get_device()
-    # score_model, sigmas, config = load_model(args.checkpoint, args.config, device)
-    # energy_fn = SoftIsingEnergy(J=1.0, double_well_strength=0.6)
-    # results = run_experiment(
-    #     score_model=score_model,
-    #     sigmas=sigmas,
-    #     energy_fn=energy_fn,
-    #     mc_ground_truth=mc_gt,
-    #     temperatures=TEMPERATURES,
-    #     hyperparameter_grid=CUSTOM_GRID,
-    #     n_samples_per_temp=args.n_samples,
-    #     image_size=IMAGE_SIZE,
-    #     device=device,
-    #     save_dir=args.save_dir,
-    #     save_samples=True,
-    # )
-    # ------------------------------------------------------------------
+        ensure_data(["networks"])
+        device = get_device()
+        hardware = str(device)
+        score_model, sigmas, _ = load_model(args.checkpoint, args.config, device)
+        energy_fn = SoftIsingEnergy(J=1.0, double_well_strength=0.6)
+        results = run_experiment(
+            score_model=score_model, sigmas=sigmas, energy_fn=energy_fn,
+            mc_ground_truth=mc_gt, temperatures=TEMPERATURES,
+            hyperparameter_grid=HYPERPARAMETER_GRID, n_samples_per_temp=args.n_samples,
+            image_size=IMAGE_SIZE, device=device, save_dir=args.save_dir,
+            save_samples=True,
+        )
+    else:  # download
+        print("\n[3/5] Loading pre-generated ablation samples...")
+        ensure_data([args.save_dir])
+        results = load_offline_samples_and_compute(
+            hyperparameter_grid=HYPERPARAMETER_GRID,
+            temperatures=TEMPERATURES,
+            mc_ground_truth=mc_gt,
+            image_size=IMAGE_SIZE,
+            save_dir=args.save_dir,
+        )
 
     if not results:
         print("[ERROR] No results loaded. Check --save_dir contains E1-E12 .pt files.")
@@ -141,9 +135,16 @@ def main():
             save_path=os.path.join(args.fig_dir, "Fig3_ablation_correlation.pdf"),
         )
 
-    # 5. Results table
+    # 5. Results table (with NFE, per-sample time, and DDPM speedup) + consistency fit
     print("\n[5/5] Generating results table...")
-    df = print_ablation_table(results, mc_gt, TEMPERATURES, save_csv=True)
+    ddpm_time_ms = load_avg_gen_time_ms(args.ddpm_dir, TEMPERATURES)
+    ddpm_time_ms = ddpm_time_ms if ddpm_time_ms == ddpm_time_ms else None  # NaN -> None
+    df = print_ablation_table(
+        results, mc_gt, TEMPERATURES, save_csv=True,
+        ddpm_time_ms=ddpm_time_ms, batch_size=50, hardware=hardware,
+        csv_path=os.path.join(args.table_dir, "Table_ablation_normalized.csv"),
+    )
+    fit_time_vs_nfe(results)
 
     # Pareto plot (if time information is available)
     if "Time(ms)" in df.columns:

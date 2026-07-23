@@ -26,8 +26,9 @@ warnings.filterwarnings("ignore")
 
 from difuvia.thermodynamics import load_mc_ground_truth, load_mc_correlation_at_tc
 from difuvia.sampling import load_offline_samples_and_compute
-from difuvia.analysis import print_ablation_table
+from difuvia.analysis import print_ablation_table, fit_time_vs_nfe
 from difuvia.viz import plot_all_observables, plot_correlation_at_tc, plot_pareto
+from difuvia.data_access import ensure_data, load_avg_gen_time_ms
 
 
 HYPERPARAMETER_GRID = [
@@ -51,6 +52,8 @@ def main():
     parser.add_argument("--save_dir",   default="ablation_samples",
                         help="Directory containing pre-generated .pt files")
     parser.add_argument("--data_dir",   default="train_data")
+    parser.add_argument("--ddpm_dir",   default="gen_data/DDPM",
+                        help="DDPM samples dir; its avg gen_time gives the Speedup baseline.")
     parser.add_argument("--fig_dir",    default="figures")
     parser.add_argument("--table_dir",  default="tables")
     parser.add_argument("--image_size", type=int, default=64)
@@ -73,8 +76,9 @@ def main():
     print(f"  Samples dir : {args.save_dir}/")
     print("=" * 60)
 
-    # 1. MC ground truth
+    # 1. MC ground truth (fetched from HF if absent, along with the samples dir)
     print("\n[1/5] Loading Monte Carlo ground truth...")
+    ensure_data([args.data_dir, args.save_dir])
     mc_gt = load_mc_ground_truth(args.data_dir, TEMPERATURES, L=args.image_size)
 
     # 2. MC G(r) at Tc
@@ -111,9 +115,16 @@ def main():
             save_path=os.path.join(args.fig_dir, "Fig3_ablation_correlation.pdf"),
         )
 
-    # 5. Table and Pareto plots
+    # 5. Table (NFE, per-sample time, DDPM speedup) + consistency fit + Pareto plots
     print("\n[5/5] Generating results table...")
-    df = print_ablation_table(results, mc_gt, TEMPERATURES, save_csv=True)
+    ddpm_time_ms = load_avg_gen_time_ms(args.ddpm_dir, TEMPERATURES)
+    ddpm_time_ms = ddpm_time_ms if ddpm_time_ms == ddpm_time_ms else None  # NaN -> None
+    df = print_ablation_table(
+        results, mc_gt, TEMPERATURES, save_csv=True,
+        ddpm_time_ms=ddpm_time_ms, batch_size=50,
+        csv_path=os.path.join(args.table_dir, "Table_ablation_normalized.csv"),
+    )
+    fit_time_vs_nfe(results)
 
     # Pareto: IPS vs time
     if "Time(ms)" in df.columns:
